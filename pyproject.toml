@@ -1,0 +1,42 @@
+[build-system]
+requires = [
+  "setuptools ~=65.5",
+  "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.dynamic]
+version = {attr = "slepianfocusing._version.__version__"}
+
+[tool.setuptools.package-data]
+slepianfocusing = ["gauss_legendre_rules.zip"]
+
+[tool.black]
+line-length = 79
+target-version = ["py311"]
+
+[project]
+name = "slepianfocusing"
+dynamic = ["version"]
+description = "Code related to my PhD thesis \"The vector Slepian theory of high numerical aperture focusing\" (2017)"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  {name = "Kornel JAHN", email = "kornel.jahn@gmail.com"}
+]
+dependencies = [
+  "numpy ~=1.26",
+  "scipy ~=1.13",
+  "numba ~=0.59",
+  "matplotlib ~=3.8",
+]
+
+[project.optional-dependencies]
+devel = [
+  "black ~=24.4",  # Code formatting
+  "pytest ~=8.1",  # Unit testing
+  "ipython ~=8.23",  # Convenience REPL
+]
