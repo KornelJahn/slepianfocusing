@@ -1,17 +1,5 @@
 # forward.py
 
-"""Example of forward focal field calculation.
-
-Plane-wave (complex) amplitudes of the incident beam are calculated and then
-expanded using vector Slepian harmonics. The focal field in the focal plane is
-calculated both using the corresponding vector Slepian multipole field
-expansion and Debye--Wolf integration.
-"""
-
-__author__ = "Kornel JAHN (kornel.jahn@gmail.com)"
-__copyright__ = "Copyright (c) 2012-2024 Kornel Jahn"
-__license__ = "MIT"
-
 import math
 import numpy as np
 import os
@@ -42,15 +30,16 @@ from slepianfocusing.focal_field_direct_int import (
     calculate_focal_field_direct_int,
 )
 
+mm = 0.0393701
+TEXTWIDTH = 2 * 155.0 * mm
+
+base = os.path.basename(__file__)
+FILENAME = os.path.splitext(base)[0]
+
 EPS = np.finfo(np.float64).eps
 SQRT_EPS = np.sqrt(EPS)
 
-descriptions = {
-    'lcp': 'Homogeneous beam with left circular polarization',
-    'lpy': 'Gaussian beam with linear (y) polarization',
-    'rad': 'Radially polarized combination of Hermite--Gaussian beams',
-}
-# TODO: provide a hint on how the parameters were chosen
+names = ['lcp', 'lpy', 'rad']
 incident_beams = {
     'lcp':  left_circular_polarization,
     'lpy':  lambda *a: (gaussian_amplitude(0.93198120356931215, *a) *
@@ -62,32 +51,15 @@ orders = {
     'lpy': [(1, 1), (-1, -1)],
     'rad': [(1, 0), (-1, 0)],
 }
-max_degree = 20
-Theta = np.pi / 3  # Angular semiaperture
+max_degrees = [20, 40, 60]
+Theta = np.pi / 3
 
 
 def intensity(A):
-    """Calculate the optical intensity of an array-like `A` of vectorial
-    complex amplitude values.
-    """
     return np.sum(A * A.conj(), 0).real
 
 
 class PlaneWaveDirIntegrator:
-    # FIXME: what about phi direction?
-    """Helper class for 2D numerical integration over all possible (theta, phi)
-    plane-wave directions, with a breakpoint in the theta direction at the
-    angular semiaperture `Theta`.
-
-    Piecewise integration is performed over the spherical cap with angular
-    semiaperture `Theta` and its complementer domain on the sphere since
-    discontinuous plane-wave amplitude cutoff is expected there in case of
-    Debye--Wolf integration.
-
-    Integration error is also estimated and absolute and relative tolerances of
-    sqrt(epsilon) are enforced.
-    """
-
     def __init__(self, Theta, theta_level):
         rule1 = GaussLegendreRule(theta_level).get_nodes_weights(0.0, Theta)
         theta1, w1, w_error1 = rule1
@@ -107,18 +79,12 @@ class PlaneWaveDirIntegrator:
         integrand = funcvals * self.jacobian
         I = np.sum(self.weights * integrand)
         I_error = np.sum(self.weights_error * integrand)
-        if abs(I - I_error) > max(SQRT_EPS, SQRT_EPS * abs(I)):
+        if abs(I - I_error) > max(SQRT_EPS, SQRT_EPS * I):
             raise ValueError('inaccurate')
         return I
 
 
 class FocalPlaneIntegrator:
-    """Helper class for 2D numerical integration over a finite (x, y) square
-    region of the focal plane. TODO: relative (lambda) units?
-
-    Integration error is also estimated and absolute and relative tolerances of
-    sqrt(epsilon) are enforced.
-    """
     def __init__(self, x_max, level):
         # Construct the product rule
         rule = GaussLegendreRule(level).get_nodes_weights(-x_max, x_max)
@@ -135,19 +101,15 @@ class FocalPlaneIntegrator:
         integrand = funcvals
         I = np.sum(self.weights * integrand)
         I_error = np.sum(self.weights_error * integrand)
-        if abs(I - I_error) > max(SQRT_EPS, SQRT_EPS * abs(I)):
+        if abs(I - I_error) > max(SQRT_EPS, SQRT_EPS * I):
             raise ValueError('inaccurate')
         return I
 
 
+
 def make_funcs(L, Theta, orders, epf_func):
-    """TODO
-    """
-    # Determine max order used
     M = max([abs(m) for p, m in orders])
     lens = AplanaticLens(Theta=Theta)
-    # Transform the function describing the field at the entrance pupil to
-    # another function yielding vectorial plane-wave amplitudes
     pwa_func = lens.transform_epf_func_to_pwa_func(epf_func)
 
     vrscp = VectorRelatedScalarConcProblem(L, np.arange(-M, M + 1), Theta)
@@ -161,15 +123,39 @@ def make_funcs(L, Theta, orders, epf_func):
         coeffs.update({(p, m): c for m, c in temp.items()})
     coeffs = {k: coeffs[k] for k in orders}
 
+    #def pwa_vsh_series_func(*pwa_angles, num=L):
+    #    result = 0
+    #    for (p, m), c in coeffs.items():
+    #        #limit = sorted(np.abs(c), reverse=True)[num - 1]
+    #        #c = c.copy()
+    #        #c[np.abs(c) < limit] = 0.0
+    #        c = c.copy()
+    #        c[(num + 1):] = 0.0
+    #        result += vsh_series_vectorized(p, m, c, *pwa_angles)
+    #    return result
+
     def pwa_slepian_series_func(*pwa_angles, num=Nm):
         result = 0
         for (p, m), c in coeffs.items():
             T = vrscp.eigenvectors[p * m]
             slepian_coeffs = np.dot(T, c)
             slepian_coeffs[num:] = 0.0
+            #limit = sorted(np.abs(slepian_coeffs), reverse=True)[num - 1]
+            #slepian_coeffs[np.abs(slepian_coeffs) < limit] = 0.0
             new_c = np.dot(T.T, slepian_coeffs)
             result += vsh_series_vectorized(p, m, new_c, *pwa_angles)
         return result
+
+   # def ff_vmf_series_func(*ff_coords, num=L):
+   #     result = 0
+   #     for (p, m), c in coeffs.items():
+   #         #limit = sorted(np.abs(c), reverse=True)[num - 1]
+   #         #c = c.copy()
+   #         #c[np.abs(c) < limit] = 0.0
+   #         c = c.copy()
+   #         c[(num + 1):] = 0.0
+   #         result += vmf_series_vectorized(p, m, c, *ff_coords)
+   #     return result
 
     def ff_slepian_series_func(*ff_coords, num=Nm):
         result = 0
@@ -177,24 +163,16 @@ def make_funcs(L, Theta, orders, epf_func):
             T = vrscp.eigenvectors[p * m]
             slepian_coeffs = np.dot(T, c)
             slepian_coeffs[num:] = 0.0
+            #limit = sorted(np.abs(slepian_coeffs), reverse=True)[num - 1]
+            #slepian_coeffs[np.abs(slepian_coeffs) < limit] = 0.0
             new_c = np.dot(T.T, slepian_coeffs)
             result += vmf_series_vectorized(p, m, new_c, *ff_coords)
         return result
 
-    return dict(
-        # TODO
-        Ns=Ns,
-        # TODO
-        Nm=Nm,
-        # TODO
-        eta_values=eta_values,
-        # TODO
-        pwa_func=pwa_func,
-        # TODO
-        pwa_slepian_series_func=pwa_slepian_series_func,
-        # TODO
-        ff_slepian_series_func=ff_slepian_series_func,
-    )
+    result = dict(Ns=Ns, Nm=Nm, eta_values=eta_values, pwa_func=pwa_func,
+                  pwa_slepian_series_func=pwa_slepian_series_func,
+                  ff_slepian_series_func=ff_slepian_series_func)
+    return result
 
 
 def compute_single_conv(L, Theta, m_values, epf_func):
