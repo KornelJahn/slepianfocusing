@@ -6,19 +6,26 @@ Plane-wave (complex) amplitudes of the incident beam are calculated and then
 expanded using vector Slepian harmonics. The focal field in the focal plane is
 calculated both using the corresponding vector Slepian multipole field
 expansion and Debye--Wolf integration.
+
+Convergence of the expansion is examined by increasing the number of terms
+involved. The optical intensity profiles of both the plane-wave amplitude
+expansion and the focal field expansion is visualized.
+
+The calculations are based on the theory described in Sections 4.1 to 4.3 of
+the thesis.
 """
 
 __author__ = "Kornel JAHN (kornel.jahn@gmail.com)"
 __copyright__ = "Copyright (c) 2012-2024 Kornel Jahn"
 __license__ = "MIT"
 
+import functools
 import math
 import numpy as np
-import os
-from functools import reduce
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.ticker as tck
+import pathlib
 
 from slepianfocusing.quadrature import GaussLegendreRule
 from slepianfocusing.lenses import AplanaticLens
@@ -42,28 +49,153 @@ from slepianfocusing.focal_field_direct_int import (
     calculate_focal_field_direct_int,
 )
 
+# Machine epsilon value for the IEEE double-precision floating point type
 EPS = np.finfo(np.float64).eps
 SQRT_EPS = np.sqrt(EPS)
 
-descriptions = {
-    'lcp': 'Homogeneous beam with left circular polarization',
-    'lpy': 'Gaussian beam with linear (y) polarization',
-    'rad': 'Radially polarized combination of Hermite--Gaussian beams',
-}
-# TODO: provide a hint on how the parameters were chosen
-incident_beams = {
-    'lcp':  left_circular_polarization,
-    'lpy':  lambda *a: (gaussian_amplitude(0.93198120356931215, *a) *
-                        linear_y_polarization(*a)),
-    'rad':  lambda *a: hg_radially_polarized_beam(0.71706053099546160, *a),
-}
-orders = {
-    'lcp': [(1, 1)],
-    'lpy': [(1, 1), (-1, -1)],
-    'rad': [(1, 0), (-1, 0)],
-}
-max_degree = 20
-Theta = np.pi / 3  # Angular semiaperture
+FILENAME = pathlib.Path(__file__).stem
+
+
+def main():
+    """Main (top-level) function of the example."""
+
+    ### Input parameter definitions
+
+    # Selection of entrance pupil incident beam profiles (field distributions),
+    # as described in Subsection 4.3.2 of the thesis.
+    descriptions = {
+        'lcp': 'Homogeneous beam with left circular polarization',
+        'lpy': 'Gaussian beam with linear (y) polarization',
+        'rad': 'Radially polarized combination of Hermite--Gaussian beams',
+    }
+    # Incident beam entrance pupil fields, as defined in Eqs. (4.15); numerical
+    # values for the Gaussian waist radii of beams 'lpy' and 'rad' have been
+    # chosen in a way that approximately 90% of the total power of the incident
+    # beams fall over the entrance pupil.
+    incident_beams = {
+        'lcp':  left_circular_polarization,
+        'lpy':  lambda *args: (
+            gaussian_amplitude(0.93198120356931215, *args)
+            * linear_y_polarization(*args)
+        ),
+        'rad':  lambda *args: (
+            hg_radially_polarized_beam(0.71706053099546160, *args)
+        ),
+    }
+    # Pre-determined orders `m` of non-vanishing terms in the vector Slepian
+    # harmonics expansion of the plane-wave amplitudes. See Section 4.1 on how
+    # to determine them and Eqs. (4.3) for a "cheat sheet". The values are
+    # pairs of `(p, m)` where `p` is the polarization index (+/-1) and `m` the
+    # order.
+    orders = {
+        'lcp': [(1, 1)],
+        'lpy': [(1, 1), (-1, -1)],
+        'rad': [(1, 0), (-1, 0)],
+    }
+    # Maximal degree L of the expansion
+    L = 20
+    # Angular semiaperture
+    Theta = np.pi / 3  # 60 degrees (NA = 0.866 in air)
+
+    ### Initialization
+
+    configure_matplotlib()
+    computation_tasks = {
+        'conv': compute_convergence_data,
+        'pwa': compute_plane_wave_amplitudes,
+        'ff': compute_focal_field,
+    }
+    data = {}
+
+    ### Computation (results are cached in .npz files)
+
+    for case in descriptions.keys():
+        epf_func = incident_beams[case]  # Entrance pupil field function
+        m_values = orders[case]
+        for task_key, task_func in computation_tasks.items():
+            label = case + str(L) + task_key
+            npz_filename = FILENAME + '_' + label + '.npz'
+            print(f'Searching for {npz_filename}...')
+            try:
+                data[label] = np.load(npz_filename)
+            except FileNotFoundError:
+                # If .npz file is not found, compute the results and store them
+                lens = AplanaticLens(Theta=Theta)
+                # FIXME: naming
+                TODO = make_funcs(L, Theta, m_values, epf_func)
+                data[label] = task_func(L, Theta, m_values, TODO)
+                np.savez(npz_filename, **data[label])
+
+    ### Visualization
+
+    plot(data)
+
+
+def configure_matplotlib():
+    """Set up common plot settings."""
+    # plt.rc('text', usetex=True)
+    plt.rc('font', family='serif', serif='cm', size=2 * 10)
+    plt.rc('pdf', use14corefonts=True) # Use Type 1 fonts
+    plt.rc('legend', fontsize='small')
+    plt.rc('axes', labelsize='medium')
+    plt.rc('xtick', direction='out', labelsize='medium')
+    plt.rc('xtick.major', pad=5, size=3)
+    plt.rc('ytick', direction='out', labelsize='medium')
+    plt.rc('ytick.major', pad=5, size=3)
+    plt.rc('grid', linestyle=':')
+
+
+def compute_convergence_data(Theta, m_values, epf_func):
+    """Compute data to study the convergence of vector Slepian harmonics
+    expansions.
+    """
+    Ns = result['Ns']
+    eta_values = result['eta_values']
+    Nm = result['Nm']
+    pwa_func = result['pwa_func']
+    pwa_slepian_series_func = result['pwa_slepian_series_func']
+    ff_slepian_series_func = result['ff_slepian_series_func']
+
+    print('Computation of the reference plane-wave amplitudes...')
+    pw_int = PolarPlaneWaveDirIntegrator(Theta, 8)
+    pw_angles = pw_int.nodes
+    pwa_ref = pwa_func(*pw_angles)
+    norm2_pwa_ref = pw_int.integrate(intensity(pwa_ref))
+
+    print('Computation of the reference focal field (Debye--Wolf)...')
+    fp_int = FocalPlaneIntegrator(10.0, 8)
+    ff_coords_cart = fp_int.nodes
+    ff_coords_sph = cartesian3d_to_spherical3d(*ff_coords_cart)
+    ff_ref = calculate_focal_field_direct_int(epf_func, lens, 7, 8,
+                                              *ff_coords_cart)
+    norm2_ff_ref = fp_int.integrate(intensity(ff_ref))
+
+    print('Computation of the approximation errors...')
+    pwa_errors_slepian = []
+    ff_errors_slepian = []
+    for num in range(1, Nm + 1):
+        print('Evaluation of the error for %d terms...' % num)
+        pwa_slepian_inner = pwa_slepian_series_func(*pw_angles, num=num)
+        pwa_slepian_error = pw_int.integrate(intensity(pwa_slepian_inner -
+                                                       pwa_ref))
+        pwa_errors_slepian.append(pwa_slepian_error / norm2_pwa_ref)
+
+        ff_slepian_inner = ff_slepian_series_func(*ff_coords_sph, num=num)
+        ff_slepian_error = fp_int.integrate(intensity(ff_slepian_inner -
+                                                      ff_ref))
+        ff_errors_slepian.append(ff_slepian_error / norm2_ff_ref)
+    pwa_errors_slepian = np.array(pwa_errors_slepian, dtype=np.float64)
+    ff_errors_slepian = np.array(ff_errors_slepian, dtype=np.float64)
+
+    data = {}
+    data['Ns'] = Ns
+    data['Nm'] = Nm
+    data['eta_values'] = eta_values
+    data['pwa_errors_slepian'] = pwa_errors_slepian
+    data['ff_errors_slepian'] = ff_errors_slepian
+    return data
+
+
 
 
 def intensity(A):
@@ -73,19 +205,18 @@ def intensity(A):
     return np.sum(A * A.conj(), 0).real
 
 
-class PlaneWaveDirIntegrator:
-    # FIXME: what about phi direction?
-    """Helper class for 2D numerical integration over all possible (theta, phi)
-    plane-wave directions, with a breakpoint in the theta direction at the
-    angular semiaperture `Theta`.
+class PolarPlaneWaveDirIntegrator:
+    """Helper class for numerical integration in the `theta` direction of the
+    unit sphere (plane-wave amplitude domain).
 
-    Piecewise integration is performed over the spherical cap with angular
-    semiaperture `Theta` and its complementer domain on the sphere since
-    discontinuous plane-wave amplitude cutoff is expected there in case of
-    Debye--Wolf integration.
+    Furthermore, note that this integration assumes discontinuity, i.e. a
+    breakpoint, in the `theta` direction at the angular semiaperture `Theta`,
+    as dictated by the cut-off occuring in the Debye--Wolf theory of focusing.
+    Piecewise integration is therefore performed.
 
-    Integration error is also estimated and absolute and relative tolerances of
-    sqrt(epsilon) are enforced.
+    Gauss--Legendre rule of given level is used and the integration error is
+    also estimated. Absolute and relative tolerances of sqrt(epsilon) are
+    enforced.
     """
 
     def __init__(self, Theta, theta_level):
@@ -127,9 +258,10 @@ class FocalPlaneIntegrator:
         x, y = np.meshgrid(x1, x1, sparse=False, indexing='ij')
         z = np.zeros_like(x)
         self.nodes = x, y, z
-        self.weights = reduce(np.multiply.outer, (w1, w1))
-        self.weights_error = reduce(np.multiply.outer,
-                                    (w_error1, w_error1))
+        self.weights = functools.reduce(np.multiply.outer, (w1, w1))
+        self.weights_error = functools.reduce(
+            np.multiply.outer, (w_error1, w_error1)
+        )
 
     def integrate(self, funcvals):
         integrand = funcvals
@@ -143,14 +275,15 @@ class FocalPlaneIntegrator:
 def make_funcs(L, Theta, orders, epf_func):
     """TODO
     """
-    # Determine max order used
-    M = max([abs(m) for p, m in orders])
+    # Assume we only need positive `m` values for the given input functions
+    assert min(p * m for p, m in orders) == 0
+    M = max(p * m for p, m in orders)
     lens = AplanaticLens(Theta=Theta)
     # Transform the function describing the field at the entrance pupil to
     # another function yielding vectorial plane-wave amplitudes
     pwa_func = lens.transform_epf_func_to_pwa_func(epf_func)
 
-    vrscp = VectorRelatedScalarConcProblem(L, np.arange(-M, M + 1), Theta)
+    vrscp = VectorRelatedScalarConcProblem(L, np.arange(0, M + 1), Theta)
     Ns = vrscp.partial_shannon_numbers[M]
     eta_values = vrscp.energy_conc_ratios[M]
     Nm = len(eta_values)
@@ -197,57 +330,9 @@ def make_funcs(L, Theta, orders, epf_func):
     )
 
 
-def compute_single_conv(L, Theta, m_values, epf_func):
-    lens = AplanaticLens(Theta=Theta)
-    result = make_funcs(L, Theta, m_values, epf_func)
-    Ns = result['Ns']
-    eta_values = result['eta_values']
-    Nm = result['Nm']
-    pwa_func = result['pwa_func']
-    pwa_slepian_series_func = result['pwa_slepian_series_func']
-    ff_slepian_series_func = result['ff_slepian_series_func']
-
-    print('Computation of the reference plane-wave amplitudes...')
-    pw_int = PlaneWaveDirIntegrator(Theta, 8)
-    pw_angles = pw_int.nodes
-    pwa_ref = pwa_func(*pw_angles)
-    norm2_pwa_ref = pw_int.integrate(intensity(pwa_ref))
-
-    print('Computation of the reference focal field (Debye--Wolf)...')
-    fp_int = FocalPlaneIntegrator(10.0, 8)
-    ff_coords_cart = fp_int.nodes
-    ff_coords_sph = cartesian3d_to_spherical3d(*ff_coords_cart)
-    ff_ref = calculate_focal_field_direct_int(epf_func, lens, 7, 8,
-                                              *ff_coords_cart)
-    norm2_ff_ref = fp_int.integrate(intensity(ff_ref))
-
-    print('Computation of the approximation errors...')
-    pwa_errors_slepian = []
-    ff_errors_slepian = []
-    for num in range(1, Nm + 1):
-        print('Evaluation of the error for %d terms...' % num)
-        pwa_slepian_inner = pwa_slepian_series_func(*pw_angles, num=num)
-        pwa_slepian_error = pw_int.integrate(intensity(pwa_slepian_inner -
-                                                       pwa_ref))
-        pwa_errors_slepian.append(pwa_slepian_error / norm2_pwa_ref)
-
-        ff_slepian_inner = ff_slepian_series_func(*ff_coords_sph, num=num)
-        ff_slepian_error = fp_int.integrate(intensity(ff_slepian_inner -
-                                                      ff_ref))
-        ff_errors_slepian.append(ff_slepian_error / norm2_ff_ref)
-    pwa_errors_slepian = np.array(pwa_errors_slepian, dtype=np.float64)
-    ff_errors_slepian = np.array(ff_errors_slepian, dtype=np.float64)
-
-    data = {}
-    data['Ns'] = Ns
-    data['Nm'] = Nm
-    data['eta_values'] = eta_values
-    data['pwa_errors_slepian'] = pwa_errors_slepian
-    data['ff_errors_slepian'] = ff_errors_slepian
-    return data
 
 
-def compute_single_pwa(L, Theta, m_values, epf_func):
+def compute_plane_wave_amplitudes(L, Theta, m_values, epf_func):
     lens = AplanaticLens(Theta=Theta)
     result = make_funcs(L, Theta, m_values, epf_func)
     Ns = result['Ns']
@@ -274,7 +359,7 @@ def compute_single_pwa(L, Theta, m_values, epf_func):
     return data
 
 
-def compute_single_ff(L, Theta, m_values, epf_func):
+def compute_focal_field(L, Theta, m_values, epf_func):
     lens = AplanaticLens(Theta=Theta)
     result = make_funcs(L, Theta, m_values, epf_func)
     Ns = result['Ns']
@@ -592,41 +677,15 @@ def plot(data):
 
 
 if __name__ == '__main__':
-    _latex_preamble = r'\usepackage{amsmath}'
+    main()
 
-    # Configure Matplotlib
-    # plt.rc('text', usetex=True)
-    # plt.rc('text.latex', preamble=_latex_preamble)
-    plt.rc('font', family='serif', serif='cm', size=2 * 10)
-    plt.rc('pdf', use14corefonts=True) # Use Type 1 fonts
-    plt.rc('legend', fontsize='small')
-    plt.rc('axes', labelsize='medium')
-    plt.rc('xtick', direction='out', labelsize='medium')
-    plt.rc('xtick.major', pad=5, size=3)
-    plt.rc('ytick', direction='out', labelsize='medium')
-    plt.rc('ytick.major', pad=5, size=3)
-    plt.rc('grid', linestyle=':')
-
-    compute_funcs = {
-        'conv': compute_single_conv,
-        'pwa': compute_single_pwa,
-        'ff': compute_single_ff
-    }
-    data = {}
-    for name in names:
-        epf_func = incident_beams[name]
-        m_values = orders[name]
-        for L in max_degrees:
-            for kind in compute_funcs.keys():
-                label = name + str(L) + kind
-                npz_filename = FILENAME + '_' + label + '.npz'
-                print('Searching for %s...' % npz_filename)
-                try:
-                    data[label] = np.load(npz_filename)
-                except:
-                    compute_func = compute_funcs[kind]
-                    data[label] = compute_func(L, Theta, m_values, epf_func)
-                    np.savez(npz_filename, **data[label])
-
-    plot(data)
+# Note that normally, to calculate inner products over the  2D integration
+# would be needed over the whole `0 <= theta < pi`, `0 <= phi < 2*pi` domain of
+# the unit sphere, as prescribed in Eq. (3.30). However, we use this integrator
+# to calculate inner products of normalized fields which are harmonic in the
+# azimuthal (phi) direction. Therefore, azimuthal integration of such inner
+# products can either yield 0 or 1. We already only calculate non-vanishing
+# inner products of specific mixed vector spherical/Slepian harmonics orders
+# `m`. Therefore inner products occuring in our calculations reduce to
+# one-dimensional integrals in the `theta` direction.
 
