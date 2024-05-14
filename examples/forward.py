@@ -49,9 +49,6 @@ from slepianfocusing.focal_field_direct_int import (
     calculate_focal_field_direct_int,
 )
 
-# Machine epsilon value for the IEEE double-precision floating point type
-EPS = np.finfo(np.float64).eps
-SQRT_EPS = np.sqrt(EPS)
 
 FILENAME = pathlib.Path(__file__).stem
 
@@ -204,71 +201,6 @@ def intensity(A):
     return np.sum(A * A.conj(), 0).real
 
 
-class PolarPlaneWaveDirIntegrator:
-    """Helper class for numerical integration in the `theta` direction of the
-    unit sphere (plane-wave amplitude domain).
-
-    Furthermore, note that this integration assumes discontinuity, i.e. a
-    breakpoint, in the `theta` direction at the angular semiaperture `Theta`,
-    as dictated by the cut-off occuring in the Debye--Wolf theory of focusing.
-    Piecewise integration is therefore performed.
-
-    Gauss--Legendre rule of given level is used and the integration error is
-    also estimated. Absolute and relative tolerances of sqrt(epsilon) are
-    enforced.
-    """
-
-    def __init__(self, Theta, theta_level):
-        rule1 = GaussLegendreRule(theta_level).get_nodes_weights(0.0, Theta)
-        theta1, w1, w_error1 = rule1
-        rule2 = GaussLegendreRule(theta_level).get_nodes_weights(Theta, np.pi)
-        theta2, w2, w_error2 = rule2
-        theta = np.hstack([theta1, theta2])
-        w = np.hstack([w1, w2])
-        w_error = np.hstack([w_error1, w_error2])
-        cos_theta, sin_theta = np.cos(theta), np.sin(theta)
-        cos_phi, sin_phi = np.ones_like(theta), np.zeros_like(theta)
-        self.nodes = cos_theta, sin_theta, cos_phi, sin_phi
-        self.weights = w
-        self.weights_error = w_error
-        self.jacobian = sin_theta
-
-    def integrate(self, funcvals):
-        integrand = funcvals * self.jacobian
-        I = np.sum(self.weights * integrand)
-        I_error = np.sum(self.weights_error * integrand)
-        if abs(I - I_error) > max(SQRT_EPS, SQRT_EPS * abs(I)):
-            raise ValueError('inaccurate')
-        return I
-
-
-class FocalPlaneIntegrator:
-    """Helper class for 2D numerical integration over a finite (x, y) square
-    region of the focal plane. TODO: relative (lambda) units?
-
-    Integration error is also estimated and absolute and relative tolerances of
-    sqrt(epsilon) are enforced.
-    """
-    def __init__(self, x_max, level):
-        # Construct the product rule
-        rule = GaussLegendreRule(level).get_nodes_weights(-x_max, x_max)
-        x1, w1, w_error1 = rule
-
-        x, y = np.meshgrid(x1, x1, sparse=False, indexing='ij')
-        z = np.zeros_like(x)
-        self.nodes = x, y, z
-        self.weights = functools.reduce(np.multiply.outer, (w1, w1))
-        self.weights_error = functools.reduce(
-            np.multiply.outer, (w_error1, w_error1)
-        )
-
-    def integrate(self, funcvals):
-        integrand = funcvals
-        I = np.sum(self.weights * integrand)
-        I_error = np.sum(self.weights_error * integrand)
-        if abs(I - I_error) > max(SQRT_EPS, SQRT_EPS * abs(I)):
-            raise ValueError('inaccurate')
-        return I
 
 
 def make_funcs(L, Theta, orders, epf_func):
