@@ -82,12 +82,11 @@ def main():
             hg_radially_polarized_beam(0.71706053099546160, *args)
         ),
     }
-    # Pre-determined orders `m` of non-vanishing terms in the vector Slepian
-    # harmonics expansion of the plane-wave amplitudes. See Section 4.1 on how
-    # to determine them and Eqs. (4.3) for a "cheat sheet". The values are
-    # pairs of `(p, m)` where `p` is the polarization index (+/-1) and `m` the
-    # order.
-    orders = {
+    # Pre-determined pairs of polarization indices `p` (+/-1) and orders `m` of
+    # non-vanishing terms in the vector Slepian harmonics expansion of the
+    # plane-wave amplitudes. See Section 4.1 on how to determine them and Eqs.
+    # (4.3) for a "cheat sheet".
+    pol_order_pairs = {
         'lcp': [(1, 1)],
         'lpy': [(1, 1), (-1, -1)],
         'rad': [(1, 0), (-1, 0)],

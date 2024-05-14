@@ -1,6 +1,12 @@
 # quadrature.py
 
-"""Clenshaw--Curtis and Gauss--Legendre quadrature rules."""
+"""Quadrature rules with error estimates.
+
+Available rules:
+    - Uniform trapezoidal (for periodic functions!),
+    - Clenshaw--Curtis,
+    - Gauss--Legendre.
+"""
 
 __author__ = "Kornel JAHN (kornel.jahn@gmail.com)"
 __copyright__ = "Copyright (c) 2012-2024 Kornel Jahn"
