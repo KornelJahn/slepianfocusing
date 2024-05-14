@@ -40,13 +40,13 @@ class PlaneWaveDirIntegrator:
         theta_rule=GaussLegendreRule
     ):
         rule = theta_rule(theta_level).get_nodes_weights(0.0, Theta)
-        theta, w, w_error = rule
+        theta1, wtheta1, wtheta_error1 = rule
         if Theta < np.pi:
             rule = theta_rule(theta_level).get_nodes_weights(Theta, np.pi)
-            theta_comp, w_comp, w_error_comp = rule
-            theta = np.hstack([theta, theta_comp])
-            w = np.hstack([w, w_comp])
-            w_error = np.hstack([w_error, w_error_comp])
+            theta1c, wtheta1c, wtheta_error1c = rule
+            theta1 = np.hstack([theta1, theta1c])
+            wtheta1 = np.hstack([wtheta1, wtheta1c])
+            wtheta_error1 = np.hstack([wtheta_error1, wtheta_error1c])
 
         Kphi = 2**phi_level
     phi1 = np.linspace(0, 2 * np.pi, Kphi + 1)[:-1]
